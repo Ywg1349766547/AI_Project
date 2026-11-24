@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MES · 主生产计划数据看板</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><polygon points='8,0 15,4 15,12 8,16 1,12 1,4' fill='%2300e5ff'/></svg>">
+<!-- 字体：不再依赖 Google Fonts（国内常访问失败，会导致数字/文字变方块），全部走系统字体 -->
+<script src="https://lib.baomitu.com/echarts/5.4.3/echarts.min.js"></script>
+<script>window.echarts||document.write('<script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.4.3/echarts.min.js"><\/script>');</script>
+<script>window.echarts||document.write('<script src="./echarts.min.js"><\/script>');</script>
+<script src="data.js" onerror="window.__dataMissing=true"></script>
+<style>
+  :root {
+    --bg: #030711;
+    --panel: rgba(8, 19, 36, 0.72);
+    --panel-line: rgba(0, 229, 255, 0.22);
+    --cyan: #00e5ff;
+    --teal: #00ffc6;
+    --violet: #7b61ff;
+    --amber: #ffb347;
+    --red: #ff5c7a;
+    --text: #d8e8ff;
+    --muted: #6d87b0;
+    --mono: "Consolas", "Courier New", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Rajdhani", "Segoe UI", "Microsoft YaHei", sans-serif;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  /* ---------- background layers ---------- */
+  .bg-grid {
+    position: fixed; inset: -50%;
+    background-image:
+      linear-gradient(rgba(0, 229, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 229, 255, 0.045) 1px, transparent 1px);
+    background-size: 56px 56px;
+    transform: perspective(900px) rotateX(54deg) translateY(-18%);
+    animation: gridDrift 16s linear infinite;
+    z-index: 0;
+    pointer-events: none;
+  }
+  @keyframes gridDrift { from { background-position: 0 0, 0 0; } to { background-position: 0 56px, 0 56px; } }
+
+  .bg-glow {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 55% 45% at 18% 0%, rgba(0, 120, 255, 0.20), transparent 60%),
+      radial-gradient(ellipse 45% 40% at 85% 10%, rgba(123, 97, 255, 0.15), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 50% 110%, rgba(0, 229, 255, 0.10), transparent 60%);
+  }
+  .scanline {
+    position: fixed; left: 0; right: 0; height: 140px; z-index: 1; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, rgba(0, 229, 255, 0.035), transparent);
+    animation: scan 9s linear infinite;
+  }
+  @keyframes scan { 0% { top: -20%; } 100% { top: 120%; } }
+  #stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.75; }
+
+  .page { position: relative; z-index: 2; max-width: 1860px; margin: 0 auto; padding: 22px 30px 18px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ---------- top bar ---------- */
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding-bottom: 4px; }
+  .brand { display: flex; align-items: center; gap: 18px; }
+  .logo {
+    width: 52px; height: 52px; position: relative; flex: none;
+    display: grid; place-items: center;
+  }
+  .logo .hex {
+    position: absolute; inset: 0;
+    background: conic-gradient(from 90deg, #00e5ff, #0057ff, #7b61ff, #00e5ff);
+    clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+    animation: hexSpin 7s linear infinite;
+    filter: drop-shadow(0 0 14px rgba(0, 229, 255, 0.55));
+  }
+  .logo .hex-inner {
+    position: absolute; inset: 4px;
+    background: #040b18;
+    clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+  }
+  .logo .core {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 18px var(--cyan), 0 0 40px rgba(0, 229, 255, 0.6);
+    animation: pulse 2s ease-in-out infinite;
+    z-index: 2;
+  }
+  @keyframes hexSpin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.72); opacity: 0.7; } }
+
+  .title-block h1 {
+    font-family: "Orbitron", "Microsoft YaHei", sans-serif;
+    font-size: 26px; font-weight: 700; letter-spacing: 2.5px;
+    background: linear-gradient(90deg, #eaf7ff 10%, var(--cyan) 55%, var(--violet) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 30px rgba(0, 229, 255, 0.25);
+  }
+  .title-block .sub {
+    margin-top: 4px; font-family: var(--mono); font-size: 11px; letter-spacing: 4px;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .title-block .sub b { color: var(--teal); font-weight: 500; }
+
+  .top-right { display: flex; align-items: center; gap: 26px; }
+  .status { display: flex; align-items: center; gap: 9px; font-size: 13px; letter-spacing: 1px; color: var(--muted); }
+  .status .dot {
+    width: 9px; height: 9px; border-radius: 50%; background: var(--teal);
+    box-shadow: 0 0 10px var(--teal); animation: pulse 1.6s ease-in-out infinite;
+  }
+  .clock-block { text-align: right; }
+  .clock { font-family: "Orbitron", var(--mono); font-size: 20px; letter-spacing: 3px; color: #eaf7ff; text-shadow: 0 0 12px rgba(0, 229, 255, 0.35); }
+  .date { font-family: var(--mono); font-size: 11px; letter-spacing: 2px; color: var(--muted); margin-top: 3px; }
+
+  /* ---------- generic panel ---------- */
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 0 24px rgba(0, 150, 255, 0.06), inset 0 0 40px rgba(0, 120, 255, 0.03);
+    transition: border-color .25s, box-shadow .25s, transform .25s;
+  }
+  .panel::before, .panel::after {
+    content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none;
+    border-color: var(--cyan); border-style: solid; opacity: 0.75;
+  }
+  .panel::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; border-radius: 10px 0 0 0; }
+  .panel::after { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; border-radius: 0 0 10px 0; }
+  .panel:hover { border-color: rgba(0, 229, 255, 0.42); box-shadow: 0 0 34px rgba(0, 229, 255, 0.12), inset 0 0 50px rgba(0, 120, 255, 0.05); }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 18px 10px;
+  }
+  .panel-title { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; letter-spacing: 2px; color: #cfe6ff; }
+  .panel-title .bar { width: 4px; height: 16px; border-radius: 2px; background: linear-gradient(180deg, var(--cyan), var(--violet)); box-shadow: 0 0 10px rgba(0, 229, 255, 0.6); }
+  .panel-tag { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--muted); border: 1px solid rgba(0, 229, 255, 0.18); padding: 2px 8px; border-radius: 3px; }
+
+  /* ---------- KPI row ---------- */
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+  .kpi {
+    padding: 16px 18px 14px; cursor: pointer; overflow: hidden;
+  }
+  .kpi::marker { content: ""; }
+  .kpi .kpi-top { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 13px; letter-spacing: 1.5px; }
+  .kpi .icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; border: 1px solid rgba(0, 229, 255, 0.2); background: rgba(0, 229, 255, 0.06); }
+  .kpi .icon svg { width: 16px; height: 16px; stroke: var(--cyan); fill: none; stroke-width: 1.6; }
+  .kpi .num {
+    margin-top: 10px; font-family: "Orbitron", var(--mono); font-size: 38px; font-weight: 700; line-height: 1;
+    color: #f2fbff; text-shadow: 0 0 22px rgba(0, 229, 255, 0.45);
+  }
+  .kpi .num small { font-family: "Rajdhani"; font-size: 14px; color: var(--muted); letter-spacing: 1px; margin-left: 6px; font-weight: 500; }
+  .kpi .spark { margin-top: 10px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--cyan), rgba(123, 97, 255, 0.15)); opacity: 0.9; }
+  .kpi:hover { transform: translateY(-3px); }
+  .kpi .corner-id { position: absolute; right: 12px; bottom: 8px; font-family: var(--mono); font-size: 9px; letter-spacing: 1px; color: rgba(109, 135, 176, 0.45); }
+
+  /* ---------- charts ---------- */
+  .charts { display: grid; grid-template-columns: 5fr 4fr 3fr; gap: 14px; }
+  .chart-box { height: 296px; padding: 0 8px 6px; }
+  .chart-box .chart { width: 100%; height: 100%; cursor: pointer; }
+  .chart-fallback { height: 100%; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+
+  /* ---------- table ---------- */
+  .table-panel { padding-bottom: 10px; }
+  .table-wrap { padding: 0 14px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  thead th {
+    position: sticky; top: 0; z-index: 1;
+    text-align: left; padding: 8px 10px; white-space: nowrap;
+    font-size: 12px; letter-spacing: 1.2px; font-weight: 600; color: #8fb0d8;
+    background: linear-gradient(180deg, rgba(10, 26, 48, 0.98), rgba(8, 20, 38, 0.92));
+    border-bottom: 1px solid rgba(0, 229, 255, 0.25);
+  }
+  tbody tr {
+    cursor: pointer; transition: background .18s, box-shadow .18s;
+    opacity: 0; animation: rowIn .5s ease forwards;
+  }
+  tbody tr:hover { background: rgba(0, 229, 255, 0.07); box-shadow: inset 3px 0 0 var(--cyan); }
+  tbody td { padding: 10px; border-bottom: 1px dashed rgba(109, 135, 176, 0.16); color: #bcd2ee; white-space: nowrap; }
+  tbody td.mono { font-family: var(--mono); font-size: 12px; color: #8fb0d8; }
+  tbody td.num { font-family: "Orbitron", var(--mono); color: var(--cyan); text-shadow: 0 0 10px rgba(0, 229, 255, 0.35); }
+  tbody td.name { color: #eaf7ff; font-weight: 600; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 99px; font-size: 11.5px; letter-spacing: 1px; }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  .chip.pending { color: var(--amber); border: 1px solid rgba(255, 179, 71, 0.35); background: rgba(255, 179, 71, 0.08); }
+  .chip.done { color: var(--teal); border: 1px solid rgba(0, 255, 198, 0.35); background: rgba(0, 255, 198, 0.08); }
+  .chip.reject { color: var(--red); border: 1px solid rgba(255, 92, 122, 0.35); background: rgba(255, 92, 122, 0.08); }
+  .row-arrow { color: rgba(0, 229, 255, 0.5); font-family: var(--mono); }
+  @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .empty-row td { text-align: center; color: var(--muted); padding: 28px; }
+
+  /* ---------- footer ---------- */
+  .footer {
+    display: flex; align-items: center; justify-content: space-between; gap: 18px;
+    padding: 4px 4px 0; color: var(--muted); font-size: 12px; letter-spacing: 0.8px;
+  }
+  .footer .src { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .footer .src b { color: #a9c6ea; font-weight: 600; }
+  .footer .mono { font-family: var(--mono); font-size: 11px; }
+  .src-link {
+    display: inline-flex; align-items: center; gap: 7px;
+    color: var(--cyan); text-decoration: none; cursor: pointer;
+    border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 6px; padding: 7px 14px;
+    background: rgba(0, 229, 255, 0.06); letter-spacing: 1.5px;
+    transition: all .2s; font-size: 12.5px;
+  }
+  .src-link:hover { background: rgba(0, 229, 255, 0.14); box-shadow: 0 0 18px rgba(0, 229, 255, 0.25); }
+
+  @media (max-width: 1280px) {
+    .kpis { grid-template-columns: repeat(3, 1fr); }
+    .charts { grid-template-columns: 1fr 1fr; }
+    .charts .panel:last-child { grid-column: span 2; }
+  }
+  @media (max-width: 860px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .charts { grid-template-columns: 1fr; }
+    .charts .panel:last-child { grid-column: auto; }
+    .topbar { flex-direction: column; gap: 12px; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow"></div>
+  <div class="scanline"></div>
+  <canvas id="stars"></canvas>
+
+  <div class="page">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo"><div class="hex"></div><div class="hex-inner"></div><div class="core"></div></div>
+        <div class="title-block">
+          <h1>主生产计划 · 数据看板</h1>
+          <div class="sub">MES / MASTER PRODUCTION PLAN / <b>REAL-TIME INTELLIGENCE</b></div>
+        </div>
+      </div>
+      <div class="top-right">
+        <div class="status"><span class="dot"></span>数据链路已同步</div>
+        <div class="clock-block">
+          <div class="clock" id="clock">--:--:--</div>
+          <div class="date" id="date">---- / -- / --</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="kpis" id="kpis"></section>
+
+    <section class="charts">
+      <div class="panel" data-src>
+        <div class="panel-head">
+          <div class="panel-title"><span class="bar"></span>物料需求强度</div>
+          <div class="panel-tag">MATERIAL LOAD</div>
+        </div>
+        <div class="chart-box"><div class="chart" id="chartMaterial"></div></div>
+      </div>
+      <div class="panel" data-src>
+        <div class="panel-head">
+          <div class="panel-title"><span class="bar"></span>销售订单需求分布</div>
+          <div class="panel-tag">SALES ORDER</div>
+        </div>
+        <div class="chart-box"><div class="chart" id="chartOrder"></div></div>
+      </div>
+      <div class="panel" data-src>
+        <div class="panel-head">
+          <div class="panel-title"><span class="bar"></span>计量单位构成</div>
+          <div class="panel-tag">UNIT MIX</div>
+        </div>
+        <div class="chart-box"><div class="chart" id="chartUnit"></div></div>
+      </div>
+    </section>
+
+    <section class="panel table-panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="bar"></span>主生产计划明细</div>
+        <div class="panel-tag"><span id="rowCount">0</span> RECORDS · 点击行跳转源表单</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>销售订单</th><th>物料编码</th><th>物料名称</th><th>规格型号</th>
+              <th>需求数量</th><th>单位</th><th>计划发货日期</th><th>生产订单</th>
+              <th>提交时间</th><th>数据 ID</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="src">
+        <span>数据来源：<b>MES · 主生产计划</b></span>
+        <span class="mono" id="syncInfo"></span>
+      </div>
+      <a class="src-link" href="https://shurui.online-office.net/team/app/57e86192d98eef89294bc107/form/5fe05ac88b572fa8246b2c5f" target="_blank" rel="noopener" id="srcLink">前往源表单 ↗</a>
+    </footer>
+  </div>
+
+<script>
+(function () {
+  const SRC_URL = 'https://shurui.online-office.net/team/app/57e86192d98eef89294bc107/form/5fe05ac88b572fa8246b2c5f';
+  const W = {
+    order: '_widget_1792570445800',
+    orderDate: '_widget_1793345456999',
+    shipDate: '_widget_1792570446411',
+    shipDate2: '_widget_1793344449173',
+    matCode: '_widget_1792570445868',
+    unit: '_widget_1792570446115',
+    matName: '_widget_1792570445885',
+    spec: '_widget_1792570445934',
+    orderNo: '_widget_1793340999997',
+    qty: '_widget_1792570446074',
+    generated: '_widget_1793345257323',
+    remark: '_widget_1791602555923'
+  };
+  /* ================= 数据源配置 ================= */
+  // 取数接口：改成你自己的公网接口地址即可；也可以直接指向一个静态 plan.json
+  // 例：window.DATA_API = 'https://你的域名/api/plan'
+  const DATA_API = window.DATA_API || './plan.json';
+  // 兜底快照：data.js 里的数据，接口不通时仍能显示上一次抓到的数据
+  const FALLBACK_DATA = (window.PLAN_DATA && window.PLAN_DATA.data) || [];
+  const FALLBACK_AT = (window.PLAN_DATA && window.PLAN_DATA.fetchedAt) || null;
+
+  async function loadData() {
+    try {
+      const res = await fetch(DATA_API, { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const body = await res.json();
+      const data = Array.isArray(body) ? body : (body.data || body.rows || body.list || []);
+      return { data, fetchedAt: (body && body.fetchedAt) || null, live: true };
+    } catch (err) {
+      console.warn('[dashboard] 取数失败，改用 data.js 快照：' + (err && err.message));
+      return { data: FALLBACK_DATA, fetchedAt: FALLBACK_AT, live: false, error: (err && err.message) || '未知错误' };
+    }
+  }
+
+  function boot(raw, fetchedAt, live) {
+  const statusEl = document.querySelector('.status');
+  if (statusEl) {
+    const hasSnapshot = Array.isArray(raw) && raw.length > 0;
+    const label = live ? '数据链路已同步'
+      : (hasSnapshot ? '静态数据 · data.js 快照' : '数据源未连通');
+    statusEl.innerHTML = '<span class="dot"></span>' + label;
+    if (!live) statusEl.style.color = hasSnapshot ? 'var(--muted)' : 'var(--amber)';
+  }
+
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const dash = v => (v === undefined || v === null || v === '') ? '—' : v;
+  const fmtDate = v => {
+    if (!v) return '';
+    const d = new Date(v);
+    if (isNaN(d)) return String(v);
+    return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d).replace(/\//g, '-');
+  };
+  const fmtTime = v => {
+    if (!v) return '—';
+    const d = new Date(v);
+    if (isNaN(d)) return String(v);
+    const f = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+    return f.replace(/\//g, '-');
+  };
+  const num = v => {
+    const n = parseFloat(v);
+    return isNaN(n) ? 0 : n;
+  };
+  const openSrc = () => window.open(SRC_URL, '_blank', 'noopener');
+
+  const rows = raw.map(r => ({
+    id: r._id,
+    order: r[W.order] || '',
+    shipDate: fmtDate(r[W.shipDate] || r[W.shipDate2]),
+    matCode: r[W.matCode] || '',
+    matName: r[W.matName] || '',
+    spec: r[W.spec] || '',
+    unit: r[W.unit] || '',
+    qty: num(r[W.qty]),
+    qtyRaw: r[W.qty],
+    generated: r[W.generated] || '',
+    createdAt: fmtTime(r.createTime)
+  }));
+
+  /* ---------- KPI ---------- */
+  const orderSet = new Set(rows.map(r => r.order).filter(Boolean));
+  const matSet = new Set(rows.map(r => r.matCode).filter(Boolean));
+  const totalQty = rows.reduce((s, r) => s + r.qty, 0);
+  const pending = rows.filter(r => r.generated !== '是').length;
+  const kpiDefs = [
+    { key: 'records', label: '计划记录总数', value: rows.length, unit: '条', icon: 'M3 12h18M3 6h18M3 18h18' },
+    { key: 'orders', label: '销售订单数量', value: orderSet.size, unit: '单', icon: 'M4 7h16l-1.5 12h-13L4 7zM8 7V5a4 4 0 018 0v2' },
+    { key: 'qty', label: '需求数量合计', value: totalQty, unit: '', icon: 'M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5' },
+    { key: 'mats', label: '涉及物料种类', value: matSet.size, unit: '种', icon: 'M12 3l9 5-9 5-9-5 9-5zm-9 9l9 5 9-5' },
+    { key: 'pending', label: '待生成生产订单', value: pending, unit: '条', icon: 'M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z' }
+  ];
+  document.getElementById('kpis').innerHTML = kpiDefs.map((k, i) => `
+    <div class="panel kpi" data-src>
+      <div class="kpi-top"><span>${k.label}</span>
+        <span class="icon"><svg viewBox="0 0 24 24"><path d="${k.icon}" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </div>
+      <div class="num"><span data-count="${k.value}" id="kpi-${k.key}">0</span>${k.unit ? `<small>${k.unit}</small>` : ''}</div>
+      <div class="spark" style="width:${62 + i * 7}%"></div>
+      <span class="corner-id">0${i + 1}</span>
+    </div>`).join('');
+
+  document.querySelectorAll('[data-count]').forEach(el => {
+    const target = parseInt(el.dataset.count, 10) || 0;
+    const start = performance.now();
+    const dur = 1100;
+    const tick = now => {
+      const p = Math.min(1, (now - start) / dur);
+      el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+  /* ---------- table ---------- */
+  const tbody = document.getElementById('tbody');
+  if (!rows.length) {
+    const msg = live
+      ? '接口已连通，但返回 0 条记录'
+      : (window.__dataMissing
+          ? '接口未连通，且没有 data.js 快照 —— 请检查 DATA_API 地址，或放一个 data.js'
+          : '接口未连通，当前显示的是 data.js 离线快照');
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="11">${msg}</td></tr>`;
+  } else {
+    tbody.innerHTML = rows.map((r, i) => {
+      const status = r.generated === '是' ? ['done', '已生成'] : (r.generated === '否' ? ['reject', '未生成'] : ['pending', '待生成']);
+      return `<tr data-src style="animation-delay:${120 + i * 55}ms" title="点击跳转到源表单">
+        <td class="name">${esc(dash(r.order))}</td>
+        <td class="mono">${esc(dash(r.matCode))}</td>
+        <td>${esc(dash(r.matName))}</td>
+        <td>${esc(dash(r.spec))}</td>
+        <td class="num">${r.qtyRaw === '' || r.qtyRaw == null ? '—' : esc(r.qtyRaw)}</td>
+        <td>${esc(dash(r.unit))}</td>
+        <td class="mono">${esc(dash(r.shipDate))}</td>
+        <td><span class="chip ${status[0]}">${status[1]}</span></td>
+        <td class="mono">${esc(r.createdAt)}</td>
+        <td class="mono">${esc(r.id ? r.id.slice(-8) : '—')}</td>
+        <td class="row-arrow">↗</td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('rowCount').textContent = rows.length;
+  tbody.addEventListener('click', e => { if (e.target.closest('tr[data-src]')) openSrc(); });
+
+  /* ---------- clock ---------- */
+  const clockEl = document.getElementById('clock');
+  const dateEl = document.getElementById('date');
+  const pad = n => String(n).padStart(2, '0');
+  const tickClock = () => {
+    const d = new Date();
+    clockEl.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    dateEl.textContent = `${d.getFullYear()} / ${pad(d.getMonth() + 1)} / ${pad(d.getDate())}`;
+  };
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  if (fetchedAt) {
+    document.getElementById('syncInfo').textContent = '同步时间 ' + fmtTime(fetchedAt);
+  }
+
+  /* ---------- charts ---------- */
+  const hasCharts = typeof echarts !== 'undefined';
+  const C = { cyan: '#00e5ff', teal: '#00ffc6', violet: '#7b61ff', amber: '#ffb347', red: '#ff5c7a', muted: '#6d87b0' };
+  const baseTooltip = {
+    backgroundColor: 'rgba(5, 15, 30, 0.95)',
+    borderColor: 'rgba(0, 229, 255, 0.4)',
+    borderWidth: 1,
+    textStyle: { color: '#d8e8ff', fontFamily: 'Rajdhani', fontSize: 13 },
+    extraCssText: 'box-shadow: 0 0 18px rgba(0,229,255,.25); border-radius: 6px;'
+  };
+
+  const matAgg = {};
+  rows.forEach(r => {
+    if (!r.matName && !r.matCode) return;
+    const key = `${r.matName || r.matCode}${r.spec ? ' · ' + r.spec : ''}`;
+    matAgg[key] = (matAgg[key] || 0) + r.qty;
+  });
+  const matData = Object.entries(matAgg).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+
+  const orderAgg = {};
+  rows.forEach(r => {
+    const k = r.order || '未填写';
+    orderAgg[k] = (orderAgg[k] || 0) + r.qty;
+  });
+  const orderData = Object.entries(orderAgg).sort((a, b) => b[1] - a[1]);
+
+  const unitAgg = {};
+  rows.forEach(r => {
+    const k = r.unit || '未填写';
+    unitAgg[k] = (unitAgg[k] || 0) + 1;
+  });
+  const unitData = Object.entries(unitAgg).map(([name, value]) => ({ name, value }));
+  const unitColors = { '千米': C.cyan, '吨': C.violet, '未填写': '#355076' };
+
+  const charts = [];
+  if (hasCharts) {
+    const mkMaterial = echarts.init(document.getElementById('chartMaterial'));
+    mkMaterial.setOption({
+      grid: { left: 12, right: 26, top: 18, bottom: 8, containLabel: true },
+      tooltip: { ...baseTooltip, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(0,229,255,0.05)' } },
+        formatter: p => `${p[0].name}<br/><b style="color:#00e5ff">需求数量 ${p[0].value}</b>` },
+      xAxis: { type: 'value', axisLabel: { color: C.muted, fontFamily: 'Rajdhani' }, splitLine: { lineStyle: { color: 'rgba(0,229,255,0.08)' } }, axisLine: { show: false } },
+      yAxis: { type: 'category', data: matData.map(d => d[0]), axisLabel: { color: '#bcd2ee', fontFamily: 'Rajdhani', fontSize: 13 }, axisLine: { lineStyle: { color: 'rgba(0,229,255,0.25)' } }, axisTick: { show: false } },
+      series: [{
+        type: 'bar', data: matData.map(d => d[1]), barWidth: 18,
+        itemStyle: {
+          borderRadius: [0, 9, 9, 0],
+          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+            { offset: 0, color: 'rgba(0,229,255,0.25)' }, { offset: 0.55, color: 'rgba(0,229,255,0.85)' }, { offset: 1, color: '#7b61ff' }
+          ]),
+          shadowBlur: 14, shadowColor: 'rgba(0,229,255,0.35)'
+        },
+        label: { show: true, position: 'right', color: C.cyan, fontFamily: 'Orbitron', fontSize: 12, formatter: '{c}' }
+      }]
+    });
+    charts.push(mkMaterial);
+
+    const mkOrder = echarts.init(document.getElementById('chartOrder'));
+    mkOrder.setOption({
+      grid: { left: 10, right: 18, top: 18, bottom: 8, containLabel: true },
+      tooltip: { ...baseTooltip, trigger: 'axis', axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(123,97,255,0.06)' } } },
+      xAxis: { type: 'category', data: orderData.map(d => d[0]), axisLabel: { color: '#bcd2ee', fontFamily: 'Rajdhani', fontSize: 12, interval: 0 }, axisLine: { lineStyle: { color: 'rgba(123,97,255,0.3)' } }, axisTick: { show: false } },
+      yAxis: { type: 'value', axisLabel: { color: C.muted, fontFamily: 'Rajdhani' }, splitLine: { lineStyle: { color: 'rgba(123,97,255,0.08)' } }, axisLine: { show: false } },
+      series: [{
+        type: 'bar', data: orderData.map(d => d[1]), barWidth: '34%',
+        itemStyle: {
+          borderRadius: [8, 8, 0, 0],
+          color: new echarts.graphic.LinearGradient(0, 1, 0, 0, [
+            { offset: 0, color: 'rgba(123,97,255,0.2)' }, { offset: 0.6, color: 'rgba(123,97,255,0.85)' }, { offset: 1, color: '#00e5ff' }
+          ]),
+          shadowBlur: 14, shadowColor: 'rgba(123,97,255,0.4)'
+        },
+        label: { show: true, position: 'top', color: '#b9c9ff', fontFamily: 'Orbitron', fontSize: 12 }
+      }]
+    });
+    charts.push(mkOrder);
+
+    const mkUnit = echarts.init(document.getElementById('chartUnit'));
+    mkUnit.setOption({
+      tooltip: { ...baseTooltip, trigger: 'item', formatter: '{b}<br/><b style="color:#00e5ff">{c} 条 · {d}%</b>' },
+      legend: { bottom: 0, textStyle: { color: '#9fb8d8', fontFamily: 'Rajdhani', fontSize: 12 }, itemWidth: 10, itemHeight: 10, icon: 'circle' },
+      series: [{
+        type: 'pie', radius: ['48%', '72%'], center: ['50%', '44%'],
+        data: unitData.map(d => ({ ...d, itemStyle: { color: unitColors[d.name] || C.muted, shadowBlur: 16, shadowColor: unitColors[d.name] || C.muted } })),
+        itemStyle: { borderColor: '#040b18', borderWidth: 4, borderRadius: 6 },
+        label: { show: true, color: '#cfe6ff', fontFamily: 'Rajdhani', fontSize: 12, formatter: '{d}%' },
+        labelLine: { lineStyle: { color: 'rgba(0,229,255,0.35)' } },
+        animationType: 'scale'
+      }]
+    });
+    charts.push(mkUnit);
+
+    window.addEventListener('resize', () => charts.forEach(c => c.resize()));
+    document.querySelectorAll('.chart').forEach(el => el.addEventListener('click', openSrc));
+  } else {
+    ['chartMaterial', 'chartOrder', 'chartUnit'].forEach(id => {
+      document.getElementById(id).outerHTML = '<div class="chart-fallback">图表库未加载 —— 检查网络，或把 echarts.min.js 放到与本页同目录</div>';
+    });
+    document.querySelectorAll('.chart-fallback').forEach(el => el.addEventListener('click', openSrc));
+  }
+
+  /* ---------- clickable panels / source link ---------- */
+  document.querySelectorAll('[data-src]').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.closest('a')) return;
+      openSrc();
+    });
+  });
+  document.getElementById('srcLink').href = SRC_URL;
+  }  /* boot 结束 */
+
+  /* ---------- starfield ---------- */
+  const canvas = document.getElementById('stars');
+  const ctx = canvas.getContext('2d');
+  let dots = [];
+  const resize = () => {
+    canvas.width = window.innerWidth * devicePixelRatio;
+    canvas.height = window.innerHeight * devicePixelRatio;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    dots = Array.from({ length: Math.min(110, Math.floor(window.innerWidth / 16)) }, () => ({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight,
+      r: Math.random() * 1.8 + 0.4,
+      dx: (Math.random() - 0.5) * 0.22,
+      dy: (Math.random() - 0.5) * 0.22,
+      a: Math.random() * 0.5 + 0.2
+    }));
+  };
+  const draw = () => {
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    for (const d of dots) {
+      d.x += d.dx; d.y += d.dy;
+      if (d.x < 0 || d.x > window.innerWidth) d.dx *= -1;
+      if (d.y < 0 || d.y > window.innerHeight) d.dy *= -1;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0, 229, 255, ${d.a})`;
+      ctx.fill();
+    }
+    for (let i = 0; i < dots.length; i++) {
+      for (let j = i + 1; j < dots.length; j++) {
+        const a = dots[i], b = dots[j];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist < 120) {
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(0, 180, 255, ${0.08 * (1 - dist / 120)})`;
+          ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+      }
+    }
+    requestAnimationFrame(draw);
+  };
+  resize();
+  window.addEventListener('resize', resize);
+  draw();
+
+  /* ---------- 启动：先取接口数据 ---------- */
+  loadData().then(d => boot(d.data || [], d.fetchedAt, d.live));
+})();
+</script>
+</body>
+</html>
